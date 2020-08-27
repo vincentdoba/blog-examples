@@ -4,9 +4,11 @@ import java.io.File
 import java.nio.file.Paths
 
 import org.apache.commons.io.FileUtils
-import org.apache.spark.sql.{SaveMode, SparkSession}
+import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
+import org.apache.spark.sql.{Dataset, Row, SaveMode, SparkSession}
 
-object DeltaReadBatch {
+object SparkReadStream {
 
   private val targetDirectory = Paths.get(getClass.getClassLoader.getResource("").toURI).getParent.getParent.toString
 
@@ -23,24 +25,33 @@ object DeltaReadBatch {
 
     import spark.implicits._
 
-    Seq(1, 2, 3).toDF("value").write.format("delta").mode(SaveMode.Append).save(path)
+    Seq(1, 2, 3).toDF("value").write.mode(SaveMode.Append).parquet(path)
 
     readAndDisplay(path)
 
-    Seq(4, 5, 6).toDF("value").write.format("delta").mode(SaveMode.Append).save(path)
+    Seq(4, 5, 6).toDF("value").write.mode(SaveMode.Append).parquet(path)
 
     readAndDisplay(path)
 
   }
 
   def readAndDisplay(path: String)(implicit spark: SparkSession): Unit = {
+
     spark
-      .read
-      .format("delta")
-      .load(path)
-      .collect()
-      .map(_.get(0))
-      .foreach(println)
+      .readStream
+      .schema(StructType(Seq(StructField("value", IntegerType, false))))
+      .parquet(path)
+      .writeStream
+      .option("checkpointLocation", s"$targetDirectory/test-data/checkpoint")
+      .trigger(Trigger.Once())
+      .foreachBatch((data: Dataset[Row], id: Long) => {
+        data.collect().map(_.get(0)).foreach(println)
+      })
+      .start()
+
+    spark.streams.awaitAnyTermination()
+    spark.streams.resetTerminated()
+
   }
 
 }
