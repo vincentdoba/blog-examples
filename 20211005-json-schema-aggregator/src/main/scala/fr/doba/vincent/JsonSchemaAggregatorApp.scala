@@ -27,15 +27,21 @@ object JsonSchemaAggregatorApp {
 
     input.show(false)
 
+    // Create UDAF
     val json_schema = udaf(JsonSchemaAggregator)
 
+    // Aggregate Schema
     val output = input.agg(json_schema(col("value")).alias("schema"))
 
     output.show(false)
 
+    // Convert DDL schema to Spark Schema
+    val schema = DataType.fromDDL(output.collect().head.getString(0))
+
+    // Use schema to convert dataframe of string to dataframe with json schema
     input.select(from_json(
       col("value"),
-      DataType.fromDDL(output.collect().head.getString(0))
+      schema
     )).printSchema()
   }
 
